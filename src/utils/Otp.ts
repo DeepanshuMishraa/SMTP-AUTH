@@ -1,38 +1,55 @@
-// generate the otp and send it to the email
-
 import nodemailer from "nodemailer";
-import dotenv from "dotenv";
+import { EMAIL, password } from "../config";
 
-dotenv.config();
+const otpStore: { [key: string]: { otp: string, expiresAt: number } } = {};
 
-export async function SendOtp({ email }: { email: string }) {
-  // generate a 4digit otp
-  const otp = Math.floor(Math.random() * 9000 + 1000);
+export async function SendOtp(email: string): Promise<boolean> {
+  try {
+    // Generate a 4-digit OTP
+    const otp = Math.floor(Math.random() * 9000 + 1000).toString();
 
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL,
-      pass: process.env.PASSWORD,
-    },
-  });
 
-  const info = await transporter.sendMail({
-    from: "deepanshu@mail.com",
-    to: email,
-    subject: "OTP for Registering",
-    text: otp.toString(),
-  });
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: EMAIL,
+        pass: password
+      },
+    });
 
-  if(info.response){
-    return {
-        message:"Message Sent Succesfully",
-        status:200
-    }
-  }else{
-    console.error();
+
+    const mailOptions = {
+      from: EMAIL,
+      to: email,
+      subject: "Your OTP Code",
+      text: `Your OTP code is ${otp}`
+    };
+
+
+    otpStore[email] = {
+      otp,
+      expiresAt: Date.now() + 10 * 60 * 1000
+    };
+
+    await transporter.sendMail(mailOptions);
+
+    return true;
+  } catch (error) {
+    console.error("Error sending OTP:", error);
+    return false;
+  }
+}
+
+SendOtp.verifyOtp = function(email: string, userOtp: string): boolean {
+  const storedOtp = otpStore[email];
+
+
+  if (!storedOtp || storedOtp.otp !== userOtp || Date.now() > storedOtp.expiresAt) {
+    return false;
   }
 
-}
+  delete otpStore[email];
+  return true;
+};
+
+export default SendOtp;

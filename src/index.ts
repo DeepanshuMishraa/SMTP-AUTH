@@ -1,9 +1,7 @@
-import express from "express";
+import express, { Request } from "express";
 import prisma from "./utils/db";
 import bcrypt from "bcryptjs";
 import { SendOtp } from "./utils/Otp";
-
-// User will first register and an email containing the OTP will be sent to the user if the otp on the verify route is correct then the user will be logged in
 
 const app = express();
 app.use(express.json());
@@ -13,13 +11,12 @@ app.post("/register", async (req, res) => {
 
   try {
     if (!email || !name || !password) {
-      res.json({
+      res.status(400).json({
+        success: false,
         message: "All fields are required",
       });
-      return;
+       return;
     }
-
-    // check if user exists
 
     const user = await prisma.user.findUnique({
       where: {
@@ -28,36 +25,83 @@ app.post("/register", async (req, res) => {
     });
 
     if (user) {
-      res.json({
+      res.status(409).json({
+        success: false,
         message: "User already exists",
       });
-
-      return;
+       return;
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    await SendOtp(email);
+    const otpResult = await SendOtp(email);
+    if (!otpResult) {
+      res.status(500).json({
+        success: false,
+        message: "Failed to send OTP",
+      });
+       return;
+    }
 
     await prisma.user.create({
       data: {
         email: email,
-        name: email,
+        name: name,
         password: hashedPassword,
+        isVerified: false,
       },
     });
 
-    res.json({
-      message: "OTP has been sent to your registered Email , please verify",
+    res.status(201).json({
+      success: true,
+      message: "OTP has been sent to your registered email, please verify",
     });
   } catch (err) {
-    res.json({
-      message: `Error : ${err}`,
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred",
     });
-    return;
   }
 });
 
-app.listen(3000, () => {
-  console.log("App is running");
+app.post("/verify-otp", async (req, res) => {
+  const { email, otp } = req.body;
+
+  try {
+   
+    const isOtpValid = await SendOtp.verifyOtp(email, otp);
+
+    if (!isOtpValid) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid OTP",
+      });
+      return;
+    }
+
+    // Mark user as verified
+    await prisma.user.update({
+      where: { email },
+      data: { isVerified: true },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "OTP verified successfully",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Verification failed",
+    });
+  }
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`App is running on port ${PORT}`);
+});
+
+export default app;
